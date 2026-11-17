@@ -1,0 +1,39 @@
+# Sorts new reports by their title: "[Bug] ..." gets the bug label and
+# "[Idea] ..." gets the idea label. (The game's Bugs & Ideas link can't set
+# labels itself: GitHub only lets people who help run a repo add them.)
+# It only reads the title and adds labels; nothing from the report is run.
+name: Label new reports
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const KINDS = [
+              { label: 'bug',  match: /^\s*\[bug\]/i,  color: 'd73a4a', description: 'Something in the game is not working' },
+              { label: 'idea', match: /^\s*\[idea\]/i, color: 'fbca04', description: 'A suggestion for the game' },
+            ];
+            const issue = context.payload.issue;
+            const has = new Set((issue.labels || []).map(l => l.name));
+            const want = KINDS.filter(k => k.match.test(issue.title || '') && !has.has(k.label));
+            if (!want.length) return;
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            for (const k of want) {
+              // make the label the first time it's needed
+              try {
+                await github.rest.issues.getLabel({ ...repo, name: k.label });
+              } catch (e) {
+                if (e.status !== 404) throw e;
+                await github.rest.issues.createLabel({ ...repo, name: k.label, color: k.color, description: k.description });
+              }
+            }
+            await github.rest.issues.addLabels({ ...repo, issue_number: issue.number, labels: want.map(k => k.label) });
